@@ -25,6 +25,14 @@ struct ConvertOptions {
     int blank_max_thickness_px = 0;
     /// Relative page width for treating a blank as a long writing line.
     float blank_long_width_ratio = 0.45f;
+
+    /// Scheme A: split left/right columns by a large vertical gap, read left
+    /// then right. Gap is a boundary only — not filled with spaces.
+    bool enable_column_detection = true;
+    /// Minimum gap width as a fraction of page width to accept a column split.
+    float column_gap_min_ratio = 0.10f;
+    /// Each side must have at least this many non-empty text boxes.
+    int column_min_boxes_per_side = 2;
 };
 
 struct TextLine {

@@ -35,7 +35,11 @@ Create 时传入，或参考 `config/pdf_to_md.json`：
   "minimum_confidence": 0.0,
   "enable_mkldnn": false,
   "line_y_tolerance_ratio": 0.6,
-  "paragraph_gap_ratio": 1.8
+  "paragraph_gap_ratio": 1.8,
+  "enable_blank_line_detection": true,
+  "enable_column_detection": true,
+  "column_gap_min_ratio": 0.10,
+  "column_min_boxes_per_side": 2
 }
 ```
 
@@ -44,6 +48,8 @@ Create 时传入，或参考 `config/pdf_to_md.json`：
 | `dpi` | `ConvertOptions` → `RenderPage` |
 | `cpu_threads` / `minimum_confidence` / `enable_mkldnn` | 传给 `PaddleOcrEngine::Initialize` |
 | `line_y_tolerance_ratio` / `paragraph_gap_ratio` | `PageToMarkdown` |
+| `enable_*_blank_*` | `blank_line_detector` |
+| `enable_column_detection` / `column_*` | `FindColumnSplitX` / `PageToMarkdown` |
 
 DPI 在代码里会钳到 **150–300**。
 

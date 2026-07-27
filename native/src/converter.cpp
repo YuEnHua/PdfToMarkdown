@@ -66,6 +66,13 @@ bool Converter::Initialize(const std::string& models_dir_utf8,
                 "blank_max_thickness_px", options_.blank_max_thickness_px);
             options_.blank_long_width_ratio = cfg.value(
                 "blank_long_width_ratio", options_.blank_long_width_ratio);
+            options_.enable_column_detection = cfg.value(
+                "enable_column_detection", options_.enable_column_detection);
+            options_.column_gap_min_ratio = cfg.value(
+                "column_gap_min_ratio", options_.column_gap_min_ratio);
+            options_.column_min_boxes_per_side = cfg.value(
+                "column_min_boxes_per_side",
+                options_.column_min_boxes_per_side);
             engine_cfg["cpu_threads"] = options_.cpu_threads;
             engine_cfg["minimum_confidence"] = options_.minimum_confidence;
             engine_cfg["enable_mkldnn"] = cfg.value("enable_mkldnn", false);

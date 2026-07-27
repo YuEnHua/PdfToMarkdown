@@ -85,12 +85,14 @@ PDFium 库用静态 `library_refcount_` + 全局 mutex，多实例安全初始�
 | 函数 | 输入 | 输出 |
 |------|------|------|
 | `BuildReadingLines` | `OcrResult` | `vector<TextLine>` |
+| `BuildReadingLinesFromBoxes` | `vector<OcrTextBox>` | 同上（分栏后单栏用） |
+| `FindColumnSplitX` | boxes + 页宽 + options | 是否分栏 + `split_x` |
 | `MergeParagraphs` | `TextLine[]` | `vector<string>` |
-| `PageToMarkdown` | page_index + OcrResult + options | `PageMarkdown` |
+| `PageToMarkdown` | page_index + OcrResult + options | `PageMarkdown`（方案 A：先左后右） |
 
 依赖 MedicalOCR `geometry::BoxCenter` / `AxisAlignedBounds`。
 
-v1 假设：**单栏、自上而下、同行左到右**。多栏会串行阅读，这是已知限制。
+v1：同行左→右、栏内上→下。**方案 A** 在检测到足够宽的垂直空隙时，先读完左栏再读右栏（空隙是分界，不用空格填）。上图下文等无左右空隙的页保持单栏。
 
 ---
 
@@ -155,7 +157,7 @@ bool RecognizeMat(const cv::Mat& image, OcrResult& result);
 
 | 测试文件 | 覆盖 |
 |----------|------|
-| `test_reading_order.cpp` | 同行左右、多行上下、段间距、空输入 |
+| `test_reading_order.cpp` | 同行左右、多行、分栏先左后右、上图下文单栏、关闭分栏 |
 | `test_markdown_writer.cpp` | 转义、分页标记、原子写 |
 | `test_error_codes.cpp` | 错误码常量 |
 

@@ -68,3 +68,101 @@ TEST(ReadingOrder, EmptyInput) {
     auto page = pdf_to_md::PageToMarkdown(0, ocr, pdf_to_md::ConvertOptions{});
     EXPECT_TRUE(page.paragraphs.empty());
 }
+
+TEST(ReadingOrder, TwoColumnReadsLeftThenRight) {
+    // Left column at x~50, right at x~500, large gap in middle (image).
+    OcrResult ocr;
+    ocr.imageWidth = 800;
+    ocr.imageHeight = 600;
+    ocr.boxes.push_back(MakeBox(40, 40, 120, 20, "L1"));
+    ocr.boxes.push_back(MakeBox(40, 80, 120, 20, "L2"));
+    ocr.boxes.push_back(MakeBox(520, 40, 120, 20, "R1"));
+    ocr.boxes.push_back(MakeBox(520, 80, 120, 20, "R2"));
+
+    pdf_to_md::ConvertOptions opt;
+    opt.enable_column_detection = true;
+    opt.column_gap_min_ratio = 0.10f;
+    opt.column_min_boxes_per_side = 2;
+
+    float split = 0.0f;
+    ASSERT_TRUE(pdf_to_md::FindColumnSplitX(ocr.boxes, ocr.imageWidth, opt,
+                                            split));
+    EXPECT_GT(split, 200.0f);
+    EXPECT_LT(split, 500.0f);
+
+    auto page = pdf_to_md::PageToMarkdown(0, ocr, opt);
+    ASSERT_FALSE(page.paragraphs.empty());
+
+    // Flatten for order check: left content must appear before right.
+    std::string all;
+    for (const auto& p : page.paragraphs) {
+        all += p;
+        all += "\n";
+    }
+    const auto pos_l1 = all.find("L1");
+    const auto pos_l2 = all.find("L2");
+    const auto pos_r1 = all.find("R1");
+    const auto pos_r2 = all.find("R2");
+    ASSERT_NE(pos_l1, std::string::npos);
+    ASSERT_NE(pos_l2, std::string::npos);
+    ASSERT_NE(pos_r1, std::string::npos);
+    ASSERT_NE(pos_r2, std::string::npos);
+    EXPECT_LT(pos_l1, pos_r1);
+    EXPECT_LT(pos_l2, pos_r1);
+    EXPECT_LT(pos_l1, pos_r2);
+
+    // Must NOT merge same-Y left+right into one line.
+    EXPECT_EQ(all.find("L1 R1"), std::string::npos);
+    EXPECT_EQ(all.find("L2 R2"), std::string::npos);
+}
+
+TEST(ReadingOrder, ImageAboveTextStaysSingleColumn) {
+    // Text only in lower half spanning full width — no left/right gap.
+    OcrResult ocr;
+    ocr.imageWidth = 800;
+    ocr.imageHeight = 600;
+    ocr.boxes.push_back(MakeBox(40, 350, 200, 20, "ParaA"));
+    ocr.boxes.push_back(MakeBox(260, 350, 200, 20, "continues"));
+    ocr.boxes.push_back(MakeBox(40, 400, 300, 20, "ParaB"));
+
+    pdf_to_md::ConvertOptions opt;
+    opt.enable_column_detection = true;
+    opt.column_gap_min_ratio = 0.10f;
+    opt.column_min_boxes_per_side = 2;
+
+    float split = 0.0f;
+    EXPECT_FALSE(pdf_to_md::FindColumnSplitX(ocr.boxes, ocr.imageWidth, opt,
+                                             split));
+
+    auto page = pdf_to_md::PageToMarkdown(0, ocr, opt);
+    ASSERT_FALSE(page.paragraphs.empty());
+    // Same line should still join with a space (single column).
+    bool found_joined = false;
+    for (const auto& p : page.paragraphs) {
+        if (p.find("ParaA continues") != std::string::npos) found_joined = true;
+    }
+    EXPECT_TRUE(found_joined);
+}
+
+TEST(ReadingOrder, ColumnDetectionCanDisable) {
+    OcrResult ocr;
+    ocr.imageWidth = 800;
+    ocr.imageHeight = 600;
+    ocr.boxes.push_back(MakeBox(40, 40, 120, 20, "L1"));
+    ocr.boxes.push_back(MakeBox(40, 80, 120, 20, "L2"));
+    ocr.boxes.push_back(MakeBox(520, 40, 120, 20, "R1"));
+    ocr.boxes.push_back(MakeBox(520, 80, 120, 20, "R2"));
+
+    pdf_to_md::ConvertOptions opt;
+    opt.enable_column_detection = false;
+
+    float split = 0.0f;
+    EXPECT_FALSE(pdf_to_md::FindColumnSplitX(ocr.boxes, ocr.imageWidth, opt,
+                                             split));
+
+    // With detection off, same-Y boxes merge: "L1 R1".
+    auto page = pdf_to_md::PageToMarkdown(0, ocr, opt);
+    std::string all;
+    for (const auto& p : page.paragraphs) all += p + "\n";
+    EXPECT_NE(all.find("L1 R1"), std::string::npos);
+}

@@ -11,6 +11,7 @@
 | [04_MODULES.md](04_MODULES.md) | 各模块职责与关键类型 |
 | [05_ERRORS_CONFIG.md](05_ERRORS_CONFIG.md) | 错误码、配置项、取消与进度 |
 
-填空横线（句中短空 / 翻译长线）见 [02_DATA_FLOW.md](02_DATA_FLOW.md) 末节，实现为 `blank_line_detector`。
+填空横线见 [02_DATA_FLOW.md](02_DATA_FLOW.md)（`blank_line_detector`）。  
+多栏「先左后右」亦见同文档「多栏阅读顺序（方案 A）」。
 
 建议阅读顺序：`00 → 01 → 02 → 03 → 04`。

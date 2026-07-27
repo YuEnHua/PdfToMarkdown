@@ -186,5 +186,27 @@ page BGR
 | `blank_max_thickness_px` | 0（自动） | 最大线粗 |
 | `blank_long_width_ratio` | 0.45 | 相对页宽，偏长书写线 |
 
+### 分栏（方案 A）
+
+| 字段 | 默认 | 含义 |
+|------|------|------|
+| `enable_column_detection` | true | 按垂直空隙分左右栏 |
+| `column_gap_min_ratio` | 0.10 | 空隙至少占页宽的比例 |
+| `column_min_boxes_per_side` | 2 | 左右每侧最少文字框数 |
+
 Markdown 导出时：**连续 `_` run（长度≥2）不转义**，单字符 `_` 仍转义，避免填空线变成 `\_\_\_\_`。
+
+## 多栏阅读顺序（方案 A）
+
+布局如「左文 | 中图 | 右文」时，若仍按 Y 同行拼接，会把左右栏拼成一行。方案 A：
+
+```text
+文字框 X 投影 → 找中间足够宽的垂直空隙（分界，不是用空格填空隙）
+  → 左栏：BuildReadingLines + MergeParagraphs
+  → 右栏：同上
+  → Markdown 段落 = 左栏段落 + 右栏段落（先左后右）
+```
+
+- **上图下文**：下方文字横向连成一片，找不到左右空隙 → **保持单栏**，算法自动退回原逻辑。  
+- 配置：`enable_column_detection`（默认 true）、`column_gap_min_ratio`、`column_min_boxes_per_side`。
 
