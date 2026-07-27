@@ -1,0 +1,30 @@
+#ifndef PDF_TO_MD_ERROR_CODES_H_
+#define PDF_TO_MD_ERROR_CODES_H_
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+enum PdfToMdErrorCode {
+    PDFMD_OK = 0,
+    PDFMD_ERR_INVALID_ARG = 1,
+    PDFMD_ERR_NOT_INITIALIZED = 2,
+    PDFMD_ERR_ALREADY_INITIALIZED = 3,
+    PDFMD_ERR_PDF_OPEN = 4,
+    PDFMD_ERR_PDF_ENCRYPTED = 5,
+    PDFMD_ERR_PDF_EMPTY = 6,
+    PDFMD_ERR_PDF_RENDER = 7,
+    PDFMD_ERR_OCR_INIT = 8,
+    PDFMD_ERR_OCR_FAILED = 9,
+    PDFMD_ERR_MODEL_MISSING = 10,
+    PDFMD_ERR_WRITE_FAILED = 11,
+    PDFMD_ERR_CANCELLED = 12,
+    PDFMD_ERR_BUSY = 13,
+    PDFMD_ERR_INTERNAL = 99
+};
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif  // PDF_TO_MD_ERROR_CODES_H_

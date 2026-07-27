@@ -1,0 +1,12 @@
+# PdfToMarkdown gitignore
+build/
+build-*/
+release/
+*.user
+*.suo
+.vs/
+app/**/bin/
+app/**/obj/
+samples/*.out.md
+samples/bench.md
+native/**/*.obj
