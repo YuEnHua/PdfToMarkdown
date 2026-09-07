@@ -78,16 +78,32 @@ if command -v install_name_tool >/dev/null 2>&1; then
   shopt -u nullglob
 fi
 
+if command -v codesign >/dev/null 2>&1; then
+  codesign --force --deep --sign - "$APP" 2>/dev/null || true
+fi
+
+cat > "${OUT}/使用说明.txt" <<EOF
+PdfToMarkdown ${VERSION}（macOS Apple Silicon）
+
+不要从压缩包窗口里直接双击。
+
+1. 解压后，把 PdfToMarkdown.app 拖到「应用程序」或「桌面」
+2. 打开「终端」，执行（二选一）：
+   xattr -cr ~/Desktop/PdfToMarkdown.app
+   xattr -cr /Applications/PdfToMarkdown.app
+3. 按住 Control 点图标 → 打开
+4. 选择 PDF；每个 PDF 旁边会生成同名 .md 和 .txt
+
+仅支持 M1/M2/M3/M4，无需联网、无需安装 Python。
+Intel Mac 不能用。
+EOF
+
 cat > "${OUT}/VERSION.txt" <<EOF
 PdfToMarkdown ${VERSION}
 Platform: macOS arm64 (Apple Silicon)
 Offline. No Homebrew install required.
 
-Run:
-  open PdfToMarkdown.app
-  PdfToMarkdown.app/Contents/MacOS/PdfToMarkdown.Cli scan.pdf --models PdfToMarkdown.app/Contents/Resources/models
-
-Gatekeeper: first launch may need Right-click -> Open.
+See 使用说明.txt
 EOF
 
 if [[ -z "$BIN" ]]; then

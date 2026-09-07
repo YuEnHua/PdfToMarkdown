@@ -10,10 +10,17 @@
 
 ## macOS（Apple Silicon）
 
-1. 在 Mac 上执行 `./scripts/build_macos.sh`（会下载预编译库并生成 `.app`）
-2. 解压 `release/PdfToMarkdown-*-macos-arm64.zip`
-3. 双击 `PdfToMarkdown.app`（首次若被拦截：右键 → 打开）
-4. 选择一个或多个 PDF；结果写在各 PDF 同目录的 `.md` 与 `.txt`
+仅支持 M1/M2/M3/M4，macOS 12+。不要从压缩包窗口里直接双击。
+
+1. 解压 `PdfToMarkdown-*-macos-arm64.zip`
+2. 把 `PdfToMarkdown.app` **拖到「应用程序」或「桌面」**
+3. 打开「终端」，执行（路径按实际放置位置改）：
+
+   `xattr -cr ~/Desktop/PdfToMarkdown.app`
+
+   或：`xattr -cr /Applications/PdfToMarkdown.app`
+4. 按住 Control 点图标 → **打开**
+5. 选择一个或多个 PDF；结果写在各 PDF 同目录的 `.md` 与 `.txt`
 
 也可把 PDF 拖到应用图标上。命令行：
 

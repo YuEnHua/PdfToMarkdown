@@ -18,12 +18,29 @@ notify() {
 
 die() {
   local msg="$1"
-  osascript -e "display dialog \"${msg}\" with title \"PdfToMarkdown\" buttons {\"OK\"} default button 1" >/dev/null 2>&1 || echo "$msg" >&2
+  printf '%s\n' "$msg" >&2
+  local tmp
+  tmp="$(mktemp /tmp/pdfmd-msg.XXXXXX)" || tmp="/tmp/pdfmd-msg.$$"
+  printf '%s' "$msg" > "$tmp"
+  osascript -e "set msg to (do shell script \"cat \" & quoted form of \"$tmp\")" \
+    -e 'display dialog msg with title "PdfToMarkdown" buttons {"OK"} default button 1' \
+    >/dev/null 2>&1 || true
+  rm -f "$tmp"
   exit 1
 }
 
+if [[ "$HERE" == *"/AppTranslocation/"* ]]; then
+  die "请勿从压缩包或下载文件夹里直接打开。请先把 PdfToMarkdown.app 拖到「应用程序」或「桌面」，打开「终端」复制执行：
+
+xattr -cr ~/Desktop/PdfToMarkdown.app
+
+（若放在应用程序里则改为：xattr -cr /Applications/PdfToMarkdown.app）
+
+然后按住 Control 点图标 → 打开。"
+fi
+
 if [[ ! -x "$CLI" ]]; then
-  die "未找到 PdfToMarkdown.Cli。请在 Apple Silicon Mac 上运行 scripts/build_macos.sh 后再打开。"
+  die "未找到 PdfToMarkdown.Cli。请确认解压后的 PdfToMarkdown.app 完整。"
 fi
 
 if [[ ! -d "${MODELS}/PP-OCRv6_small_det" ]]; then
@@ -70,8 +87,15 @@ if [[ -f "$CONFIG" ]]; then
   : # config is baked into Create JSON; models path is enough
 fi
 
-if ! "$CLI" "${args[@]}"; then
-  die "转换失败。可在终端运行：${CLI} <file.pdf> --models ${MODELS}"
+set +e
+cli_out="$("$CLI" "${args[@]}" 2>&1)"
+cli_status=$?
+set -e
+if [[ $cli_status -ne 0 ]]; then
+  tail_out="$(printf '%s' "$cli_out" | tail -c 600)"
+  die "转换失败。请把 PdfToMarkdown.app 放到「应用程序」或「桌面」后执行：xattr -cr <app路径>，再右键打开。
+
+${tail_out}"
 fi
 
 notify "完成：已在各 PDF 旁写入 .md 与 .txt"
