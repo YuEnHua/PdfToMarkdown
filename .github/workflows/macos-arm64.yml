@@ -71,6 +71,10 @@ jobs:
           APP=release/PdfToMarkdown-1.0.0-macos-arm64/PdfToMarkdown.app
           otool -L "$APP/Contents/MacOS/PdfToMarkdown.Cli"
           otool -L "$APP/Contents/Frameworks/libopencv_imgcodecs.413.dylib"
+          if otool -L "$APP/Contents/Frameworks/libopencv_imgcodecs.413.dylib" | grep -q '@rpath/libc++.1.dylib'; then
+            echo "ERROR: imgcodecs still references @rpath/libc++.1.dylib" >&2
+            exit 1
+          fi
           "$APP/Contents/MacOS/PdfToMarkdown.Cli" --help
 
       - name: Upload artifact
