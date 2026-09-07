@@ -9,6 +9,7 @@ from __future__ import annotations
 import io
 import os
 import shutil
+import subprocess
 import sys
 import tarfile
 import zipfile
@@ -91,6 +92,49 @@ def flatten_if_single_dir(dest: Path) -> None:
         inner.rmdir()
 
 
+def zstd_decompress(raw: bytes) -> bytes:
+    """Unpack zstd without pip --user (PEP 668 / Homebrew Python)."""
+    try:
+        from compression.zstd import decompress as std_decompress  # Python 3.14+
+
+        return std_decompress(raw)
+    except ImportError:
+        pass
+
+    try:
+        import zstandard as zstd  # type: ignore
+
+        return zstd.ZstdDecompressor().decompress(raw)
+    except ImportError:
+        pass
+
+    zstd_bin = shutil.which("zstd")
+    if zstd_bin:
+        proc = subprocess.run(
+            [zstd_bin, "-d"],
+            input=raw,
+            capture_output=True,
+            check=True,
+        )
+        return proc.stdout
+
+    venv_dir = CACHE / "_zstd_venv"
+    py = venv_dir / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    if not py.exists():
+        log("  creating local venv to install zstandard")
+        subprocess.check_call([sys.executable, "-m", "venv", str(venv_dir)])
+        subprocess.check_call([str(py), "-m", "pip", "install", "-q", "zstandard"])
+    if os.name == "nt":
+        site_pkgs = [venv_dir / "Lib" / "site-packages"]
+    else:
+        site_pkgs = list((venv_dir / "lib").glob("python*/site-packages"))
+    for sp in site_pkgs:
+        sys.path.insert(0, str(sp))
+    import zstandard as zstd  # type: ignore
+
+    return zstd.ZstdDecompressor().decompress(raw)
+
+
 def extract_conda(archive: Path, dest: Path) -> None:
     dest.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(archive) as zf:
@@ -103,18 +147,7 @@ def extract_conda(archive: Path, dest: Path) -> None:
             raise RuntimeError(f"No pkg-*.tar.zst in {archive.name}")
         raw = zf.read(pkg)
 
-    try:
-        import zstandard as zstd  # type: ignore
-    except ImportError:
-        import subprocess
-
-        log("  installing zstandard (pip) to unpack .conda")
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "--user", "zstandard"]
-        )
-        import zstandard as zstd  # type: ignore
-
-    data = zstd.ZstdDecompressor().decompress(raw)
+    data = zstd_decompress(raw)
     with tarfile.open(fileobj=io.BytesIO(data), mode="r:") as tar:
         tar.extractall(dest)
 
