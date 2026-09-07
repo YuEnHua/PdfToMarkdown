@@ -65,6 +65,13 @@ jobs:
           MODELS_SRC: ${{ github.workspace }}/PdfToMarkdown/models
         run: bash scripts/package_macos.sh
 
+      - name: Smoke-test CLI loads
+        working-directory: PdfToMarkdown
+        run: |
+          APP=release/PdfToMarkdown-1.0.0-macos-arm64/PdfToMarkdown.app
+          otool -L "$APP/Contents/MacOS/PdfToMarkdown.Cli"
+          "$APP/Contents/MacOS/PdfToMarkdown.Cli" --help
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

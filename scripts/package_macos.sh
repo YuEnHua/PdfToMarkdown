@@ -72,8 +72,22 @@ if command -v install_name_tool >/dev/null 2>&1; then
   shopt -s nullglob
   for bin in "${MACOS}/PdfToMarkdown.Cli" "${FW}"/*.dylib; do
     [[ -f "$bin" ]] || continue
+    if [[ "$bin" == *.dylib ]]; then
+      install_name_tool -id "@rpath/$(basename "$bin")" "$bin" 2>/dev/null || true
+    fi
     install_name_tool -add_rpath "@loader_path/../Frameworks" "$bin" 2>/dev/null || true
     install_name_tool -add_rpath "@loader_path" "$bin" 2>/dev/null || true
+    if command -v otool >/dev/null 2>&1; then
+      otool -L "$bin" | awk '/^\t/ {print $1}' | while read -r dep; do
+        case "$dep" in
+          /usr/lib/*|/System/*|@rpath/*|@loader_path/*|@executable_path/*) continue ;;
+        esac
+        n="$(basename "$dep")"
+        if [[ -f "$FW/$n" ]]; then
+          install_name_tool -change "$dep" "@rpath/$n" "$bin" 2>/dev/null || true
+        fi
+      done
+    fi
   done
   shopt -u nullglob
 fi
