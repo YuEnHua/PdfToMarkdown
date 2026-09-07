@@ -196,44 +196,58 @@ load_rpaths() {
   '
 }
 
+rewrite_bin() {
+  local bin="$1"
+  local n dep rp have_fw have_loader
+  local args=()
+  chmod u+w "$bin" 2>/dev/null || true
+  if [[ "$bin" == *.dylib ]]; then
+    args+=(-id "@rpath/$(basename "$bin")")
+  fi
+  have_fw=0
+  have_loader=0
+  while IFS= read -r rp; do
+    [[ -z "$rp" ]] && continue
+    case "$rp" in
+      @loader_path/../Frameworks) have_fw=1 ;;
+      @loader_path) have_loader=1 ;;
+      /opt/homebrew/*|/Users/*|/usr/local/*) args+=(-delete_rpath "$rp") ;;
+    esac
+  done < <(load_rpaths "$bin")
+  [[ "$have_fw" == 1 ]] || args+=(-add_rpath "@loader_path/../Frameworks")
+  [[ "$have_loader" == 1 ]] || args+=(-add_rpath "@loader_path")
+  while IFS= read -r dep; do
+    [[ -z "$dep" ]] && continue
+    n="$(basename "$dep")"
+    if [[ "$n" == "libc++.1.dylib" || "$n" == "libc++abi.1.dylib" ]]; then
+      if [[ "$dep" != "/usr/lib/${n}" ]]; then
+        args+=(-change "$dep" "/usr/lib/${n}")
+      fi
+      continue
+    fi
+    is_system_dep "$dep" && continue
+    if [[ ! -f "$FW/$n" ]]; then
+      echo "ERROR: cannot rewrite $dep (not in Frameworks)" >&2
+      return 1
+    fi
+    if [[ "$dep" != "@rpath/$n" ]]; then
+      args+=(-change "$dep" "@rpath/$n")
+    fi
+  done < <(load_dylibs "$bin")
+  if [[ ${#args[@]} -eq 0 ]]; then
+    return 0
+  fi
+  if ! install_name_tool "${args[@]}" "$bin"; then
+    echo "ERROR: install_name_tool failed on $(basename "$bin")" >&2
+    return 1
+  fi
+}
+
 if command -v install_name_tool >/dev/null 2>&1; then
   shopt -s nullglob
   for bin in "${MACOS}/PdfToMarkdown.Cli" "${FW}"/*.dylib; do
     [[ -f "$bin" ]] || continue
-    chmod u+w "$bin" 2>/dev/null || true
-    codesign --remove-signature "$bin" 2>/dev/null || true
-    if [[ "$bin" == *.dylib ]]; then
-      install_name_tool -id "@rpath/$(basename "$bin")" "$bin"
-    fi
-    while IFS= read -r rp; do
-      [[ -z "$rp" ]] && continue
-      case "$rp" in
-        /opt/homebrew/*|/Users/*|/usr/local/*)
-          install_name_tool -delete_rpath "$rp" "$bin" || true
-          ;;
-      esac
-    done < <(load_rpaths "$bin")
-    install_name_tool -add_rpath "@loader_path/../Frameworks" "$bin" 2>/dev/null || true
-    install_name_tool -add_rpath "@loader_path" "$bin" 2>/dev/null || true
-    while IFS= read -r dep; do
-      [[ -z "$dep" ]] && continue
-      n="$(basename "$dep")"
-      if [[ "$n" == "libc++.1.dylib" || "$n" == "libc++abi.1.dylib" ]]; then
-        if [[ "$dep" != "/usr/lib/${n}" ]]; then
-          install_name_tool -change "$dep" "/usr/lib/${n}" "$bin"
-        fi
-        continue
-      fi
-      is_system_dep "$dep" && continue
-      if [[ -f "$FW/$n" ]]; then
-        if [[ "$dep" != "@rpath/$n" ]]; then
-          install_name_tool -change "$dep" "@rpath/$n" "$bin"
-        fi
-      else
-        echo "ERROR: cannot rewrite $dep (not in Frameworks)" >&2
-        exit 1
-      fi
-    done < <(load_dylibs "$bin")
+    rewrite_bin "$bin"
   done
   shopt -u nullglob
 
