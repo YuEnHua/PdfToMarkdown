@@ -258,10 +258,21 @@ def fetch_opencv() -> None:
 
 def main() -> int:
     CACHE.mkdir(parents=True, exist_ok=True)
+    skip_opencv = (
+        "--skip-opencv" in sys.argv[1:]
+        or os.environ.get("SKIP_CONDA_OPENCV", "").strip().lower()
+        in ("1", "true", "yes")
+    )
     fetch_pdfium()
     fetch_paddle()
-    fetch_opencv()
-    log("Done. Mac deps in third_party/{pdfium-macos,paddle_inference_macos,opencv-macos}")
+    if skip_opencv:
+        log("[3/3] skip conda OpenCV (CI uses Homebrew)")
+    else:
+        fetch_opencv()
+    log(
+        "Done. Mac deps in third_party/{pdfium-macos,paddle_inference_macos"
+        + ("}" if skip_opencv else ",opencv-macos}")
+    )
     return 0
 
 

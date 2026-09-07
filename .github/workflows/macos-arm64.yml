@@ -13,6 +13,7 @@ on:
       - "app/macos/**"
       - "scripts/build_macos.sh"
       - "scripts/package_macos.sh"
+      - "scripts/fetch_macos_deps.sh"
       - "scripts/fetch_macos_deps.py"
 
 jobs:
@@ -36,11 +37,24 @@ jobs:
       - name: Show runner arch
         run: uname -m && sw_vers
 
-      - name: Fetch Paddle / PDFium / OpenCV (arm64)
+      - name: Install Homebrew OpenCV
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+        run: |
+          brew install opencv
+          OCV_CMAKE="$(brew --prefix opencv)/lib/cmake/opencv4"
+          test -f "$OCV_CMAKE/OpenCVConfig.cmake"
+          echo "OpenCV_DIR=$OCV_CMAKE" >> "$GITHUB_ENV"
+          echo "Using $OCV_CMAKE"
+
+      - name: Fetch Paddle / PDFium (arm64)
         working-directory: PdfToMarkdown
+        env:
+          SKIP_CONDA_OPENCV: "1"
         run: |
           chmod +x scripts/*.sh app/macos/launcher.sh
-          python3 scripts/fetch_macos_deps.py
+          python3 scripts/fetch_macos_deps.py --skip-opencv
 
       - name: Fetch PP-OCRv6 models
         working-directory: PdfToMarkdown
@@ -56,7 +70,7 @@ jobs:
             -DPDF_TO_MD_BUILD_TESTS=OFF \
             -DMEDICAL_OCR_ROOT="${GITHUB_WORKSPACE}/MedicalOCR" \
             -DPADDLE_INFERENCE_DIR="$PWD/third_party/paddle_inference_macos" \
-            -DOpenCV_DIR="$PWD/third_party/opencv-macos/lib/cmake/opencv4"
+            -DOpenCV_DIR="${OpenCV_DIR}"
           cmake --build build-macos --config Release --target PdfToMarkdown.Native PdfToMarkdown.Cli -j 4
 
       - name: Package .app zip
@@ -69,13 +83,20 @@ jobs:
         working-directory: PdfToMarkdown
         run: |
           APP=release/PdfToMarkdown-1.0.0-macos-arm64/PdfToMarkdown.app
-          otool -L "$APP/Contents/MacOS/PdfToMarkdown.Cli"
-          otool -L "$APP/Contents/Frameworks/libopencv_imgcodecs.413.dylib"
-          if otool -L "$APP/Contents/Frameworks/libopencv_imgcodecs.413.dylib" | grep -q '@rpath/libc++.1.dylib'; then
-            echo "ERROR: imgcodecs still references @rpath/libc++.1.dylib" >&2
+          CLI="$APP/Contents/MacOS/PdfToMarkdown.Cli"
+          FW="$APP/Contents/Frameworks"
+          test -x "$CLI"
+          otool -L "$CLI"
+          otool -L "$FW"/libopencv_imgcodecs*.dylib
+          if otool -L "$CLI" "$FW"/*.dylib | grep -E $'\t/opt/homebrew/'; then
+            echo "ERROR: leftover Homebrew absolute load paths" >&2
             exit 1
           fi
-          "$APP/Contents/MacOS/PdfToMarkdown.Cli" --help
+          if otool -L "$CLI" "$FW"/*.dylib | grep -q '@rpath/libc++.1.dylib'; then
+            echo "ERROR: still references @rpath/libc++.1.dylib" >&2
+            exit 1
+          fi
+          "$CLI" --help
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

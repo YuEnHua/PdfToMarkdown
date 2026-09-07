@@ -36,22 +36,53 @@ if [[ -n "$BIN" ]]; then
   shopt -u nullglob
 fi
 
-[[ -f "${ROOT}/third_party/pdfium-macos/lib/libpdfium.dylib" ]] && \
-  cp -L "${ROOT}/third_party/pdfium-macos/lib/libpdfium.dylib" "$FW/"
-if [[ -d "${ROOT}/third_party/paddle_inference_macos/paddle/lib" ]]; then
+# CMake copies Paddle/OpenCV into Native's LIBRARY output (build-macos/lib).
+if [[ -d "${ROOT}/build-macos/lib" ]]; then
   shopt -s nullglob
-  for f in "${ROOT}/third_party/paddle_inference_macos/paddle/lib/"*.dylib; do
-    cp -L "$f" "$FW/"
+  for f in "${ROOT}/build-macos/lib/"*.dylib; do
+    [[ -f "$f" && -e "$f" ]] || continue
+    n="$(basename "$f")"
+    case "$n" in
+      *gfortran*|*quadmath*|*lapack-netlib*) continue ;;
+    esac
+    [[ -e "$FW/$n" ]] && continue
+    cp -L "$f" "$FW/$n"
   done
   shopt -u nullglob
 fi
 
+[[ -f "${ROOT}/third_party/pdfium-macos/lib/libpdfium.dylib" ]] && \
+  cp -L "${ROOT}/third_party/pdfium-macos/lib/libpdfium.dylib" "$FW/"
+
 SEARCH_LIBS=(
   "${BIN:-}"
+  "${ROOT}/build-macos/lib"
+  "${ROOT}/build-macos/bin"
   "${ROOT}/third_party/opencv-macos/lib"
   "${ROOT}/third_party/paddle_inference_macos/paddle/lib"
   "${ROOT}/third_party/pdfium-macos/lib"
+  "/opt/homebrew/lib"
 )
+if [[ -d /opt/homebrew/opt ]]; then
+  shopt -s nullglob
+  for d in /opt/homebrew/opt/*/lib; do
+    [[ -d "$d" ]] && SEARCH_LIBS+=("$d")
+  done
+  shopt -u nullglob
+fi
+if command -v brew >/dev/null 2>&1; then
+  _brew_ocv="$(brew --prefix opencv 2>/dev/null || true)"
+  [[ -n "$_brew_ocv" && -d "$_brew_ocv/lib" ]] && SEARCH_LIBS+=("$_brew_ocv/lib")
+  _brew_lib="$(brew --prefix 2>/dev/null || true)/lib"
+  [[ -d "$_brew_lib" ]] && SEARCH_LIBS+=("$_brew_lib")
+fi
+
+load_dylibs() {
+  otool -l "$1" 2>/dev/null | awk '
+    $2=="LC_LOAD_DYLIB" || $2=="LC_LOAD_WEAK_DYLIB" || $2=="LC_REEXPORT_DYLIB" {want=1}
+    want && $1=="name" {print $2; want=0}
+  '
+}
 
 find_src() {
   local want="$1"
@@ -82,12 +113,11 @@ find_src() {
 
 is_system_dep() {
   case "$1" in
-    /usr/lib/*|/System/*) return 0 ;;
+    /usr/lib/*|/System/*|/Library/Apple/*) return 0 ;;
   esac
   return 1
 }
 
-# Pull the transitive dylib closure instead of globbing unused OpenCV contrib.
 if command -v otool >/dev/null 2>&1; then
   changed=1
   while [[ "$changed" == 1 ]]; do
@@ -99,26 +129,29 @@ if command -v otool >/dev/null 2>&1; then
         [[ -z "$dep" ]] && continue
         is_system_dep "$dep" && continue
         n="$(basename "$dep")"
-        [[ "$n" == "libc++.1.dylib" ]] && continue
-        if [[ ! -e "$FW/$n" ]]; then
-          if src="$(find_src "$n")"; then
-            echo "  copy $(basename "$src") -> Frameworks/$n"
-            cp -L "$src" "$FW/$n"
-            changed=1
-          else
-            echo "WARNING: missing $n (needed by $(basename "$bin"))" >&2
-          fi
+        [[ "$n" == "libc++.1.dylib" || "$n" == "libc++abi.1.dylib" ]] && continue
+        [[ -e "$FW/$n" ]] && continue
+        src=""
+        if [[ "$dep" == /* && -e "$dep" ]]; then
+          src="$dep"
+        elif src="$(find_src "$n")"; then
+          :
+        else
+          src=""
         fi
-      done < <(otool -L "$bin" | awk '/^\t/ {print $1}')
+        if [[ -n "$src" && -e "$src" ]]; then
+          echo "  copy $src -> Frameworks/$n"
+          cp -L "$src" "$FW/$n"
+          chmod u+w "$FW/$n" 2>/dev/null || true
+          changed=1
+        else
+          echo "ERROR: missing $n (needed by $(basename "$bin"): $dep)" >&2
+          exit 1
+        fi
+      done < <(load_dylibs "$bin")
     done
     shopt -u nullglob
   done
-elif [[ -d "${ROOT}/third_party/opencv-macos/lib" ]]; then
-  shopt -s nullglob
-  for f in "${ROOT}/third_party/opencv-macos/lib/"*.dylib; do
-    cp -L "$f" "$FW/"
-  done
-  shopt -u nullglob
 fi
 
 cp "${ROOT}/config/pdf_to_md.json" "${RES}/config/"
@@ -147,31 +180,58 @@ if command -v install_name_tool >/dev/null 2>&1; then
   shopt -s nullglob
   for bin in "${MACOS}/PdfToMarkdown.Cli" "${FW}"/*.dylib; do
     [[ -f "$bin" ]] || continue
+    chmod u+w "$bin" 2>/dev/null || true
     if [[ "$bin" == *.dylib ]]; then
       install_name_tool -id "@rpath/$(basename "$bin")" "$bin" 2>/dev/null || true
     fi
     install_name_tool -add_rpath "@loader_path/../Frameworks" "$bin" 2>/dev/null || true
     install_name_tool -add_rpath "@loader_path" "$bin" 2>/dev/null || true
-    # Conda OpenCV links libc++ via @rpath; macOS provides it at /usr/lib.
-    install_name_tool -change "@rpath/libc++.1.dylib" "/usr/lib/libc++.1.dylib" "$bin" 2>/dev/null || true
-    if command -v otool >/dev/null 2>&1; then
-      while IFS= read -r dep; do
-        [[ -z "$dep" ]] && continue
-        n="$(basename "$dep")"
-        if [[ "$n" == "libc++.1.dylib" ]]; then
-          install_name_tool -change "$dep" "/usr/lib/libc++.1.dylib" "$bin" 2>/dev/null || true
-          continue
-        fi
-        case "$dep" in
-          /usr/lib/*|/System/*|@rpath/*|@loader_path/*|@executable_path/*) continue ;;
-        esac
-        if [[ -f "$FW/$n" ]]; then
+    while IFS= read -r dep; do
+      [[ -z "$dep" ]] && continue
+      n="$(basename "$dep")"
+      if [[ "$n" == "libc++.1.dylib" || "$n" == "libc++abi.1.dylib" ]]; then
+        install_name_tool -change "$dep" "/usr/lib/${n}" "$bin" 2>/dev/null || true
+        continue
+      fi
+      is_system_dep "$dep" && continue
+      if [[ -f "$FW/$n" ]]; then
+        if [[ "$dep" != "@rpath/$n" ]]; then
           install_name_tool -change "$dep" "@rpath/$n" "$bin" 2>/dev/null || true
         fi
-      done < <(otool -L "$bin" | awk '/^\t/ {print $1}')
-    fi
+      else
+        echo "ERROR: cannot rewrite $dep (not in Frameworks)" >&2
+        exit 1
+      fi
+    done < <(load_dylibs "$bin")
   done
   shopt -u nullglob
+
+  bad=0
+  shopt -s nullglob
+  for bin in "${MACOS}/PdfToMarkdown.Cli" "${FW}"/*.dylib; do
+    [[ -f "$bin" ]] || continue
+    while IFS= read -r dep; do
+      [[ -z "$dep" ]] && continue
+      n="$(basename "$dep")"
+      if [[ "$n" == "libc++.1.dylib" || "$n" == "libc++abi.1.dylib" ]]; then
+        if [[ "$dep" != "/usr/lib/$n" ]]; then
+          echo "ERROR: libc++ not mapped in $(basename "$bin"): $dep" >&2
+          bad=1
+        fi
+        continue
+      fi
+      is_system_dep "$dep" && continue
+      if [[ "$dep" != "@rpath/$n" ]]; then
+        echo "ERROR: leftover load path in $(basename "$bin"): $dep" >&2
+        bad=1
+      elif [[ ! -e "$FW/$n" ]]; then
+        echo "ERROR: $n referenced by $(basename "$bin") but missing in Frameworks" >&2
+        bad=1
+      fi
+    done < <(load_dylibs "$bin")
+  done
+  shopt -u nullglob
+  [[ "$bad" == 0 ]] || exit 1
 fi
 
 if command -v codesign >/dev/null 2>&1; then
