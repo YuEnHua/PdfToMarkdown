@@ -67,19 +67,32 @@ bool ReadFileUtf8(const std::string& path_utf8, std::vector<uint8_t>& out,
 #else
     FILE* fp = fopen(path_utf8.c_str(), "rb");
     if (!fp) {
-        error = "Failed to open PDF file";
+        error = "Failed to open PDF file (path not found or inaccessible)";
         return false;
     }
-    fseek(fp, 0, SEEK_END);
-    long sz = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
+    if (fseek(fp, 0, SEEK_END) != 0) {
+        fclose(fp);
+        error = "Failed to seek PDF file";
+        return false;
+    }
+    const long sz = ftell(fp);
     if (sz <= 0) {
         fclose(fp);
         error = "Invalid PDF file size";
         return false;
     }
+    if (sz > 512L * 1024 * 1024) {
+        fclose(fp);
+        error = "PDF file too large (>512MB)";
+        return false;
+    }
+    if (fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        error = "Failed to rewind PDF file";
+        return false;
+    }
     out.resize(static_cast<size_t>(sz));
-    size_t n = fread(out.data(), 1, out.size(), fp);
+    const size_t n = fread(out.data(), 1, out.size(), fp);
     fclose(fp);
     if (n != out.size()) {
         out.clear();

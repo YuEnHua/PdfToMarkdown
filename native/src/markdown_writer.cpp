@@ -115,38 +115,69 @@ std::string BuildMarkdownDocument(const std::string& source_pdf_name,
     return oss.str();
 }
 
-bool WriteMarkdownAtomic(const std::string& md_path_utf8,
-                         const std::string& content,
-                         std::string& error_out) {
-    if (md_path_utf8.empty()) {
-        error_out = "Markdown output path is empty";
+std::string BuildPlainTextDocument(const std::string& source_pdf_name,
+                                   const std::vector<PageMarkdown>& pages) {
+    std::ostringstream oss;
+    oss << "generated-by: PdfToMarkdown 1.0.0\n";
+    oss << "source: " << FileNameOnly(source_pdf_name) << "\n\n";
+
+    for (size_t i = 0; i < pages.size(); ++i) {
+        const auto& page = pages[i];
+        const int page_no = page.page_index + 1;
+        oss << "----- page " << page_no << " -----\n\n";
+        if (page.paragraphs.empty()) {
+            oss << "（本页无识别到文字）\n\n";
+        } else {
+            for (const auto& para : page.paragraphs) {
+                oss << para << "\n\n";
+            }
+        }
+    }
+    return oss.str();
+}
+
+std::string DeriveTxtPathFromMdPath(const std::string& md_path_utf8) {
+    if (md_path_utf8.empty()) return {};
+    const size_t slash = md_path_utf8.find_last_of("/\\");
+    const size_t start = (slash == std::string::npos) ? 0 : slash + 1;
+    const size_t dot = md_path_utf8.find_last_of('.');
+    if (dot != std::string::npos && dot > start) {
+        return md_path_utf8.substr(0, dot) + ".txt";
+    }
+    return md_path_utf8 + ".txt";
+}
+
+bool WriteTextAtomic(const std::string& path_utf8,
+                     const std::string& content,
+                     std::string& error_out) {
+    if (path_utf8.empty()) {
+        error_out = "Output path is empty";
         return false;
     }
 
-    const std::string tmp_path = md_path_utf8 + ".tmp";
+    const std::string tmp_path = path_utf8 + ".tmp";
 
 #ifdef _WIN32
     {
         std::wstring wtmp = Utf8ToWide(tmp_path);
         std::ofstream ofs(wtmp, std::ios::binary | std::ios::trunc);
         if (!ofs) {
-            error_out = "Cannot create temporary markdown file (check permissions)";
+            error_out = "Cannot create temporary output file (check permissions)";
             return false;
         }
         ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
         if (!ofs) {
-            error_out = "Failed writing temporary markdown file (disk full?)";
+            error_out = "Failed writing temporary output file (disk full?)";
             return false;
         }
     }
 
     std::wstring wtmp = Utf8ToWide(tmp_path);
-    std::wstring wdst = Utf8ToWide(md_path_utf8);
+    std::wstring wdst = Utf8ToWide(path_utf8);
     if (!MoveFileExW(wtmp.c_str(), wdst.c_str(),
                      MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
-        // Fallback: copy then delete
         if (!CopyFileW(wtmp.c_str(), wdst.c_str(), FALSE)) {
-            error_out = "Failed to replace destination markdown file";
+            error_out = "Failed to replace destination output file";
             DeleteFileW(wtmp.c_str());
             return false;
         }
@@ -156,23 +187,29 @@ bool WriteMarkdownAtomic(const std::string& md_path_utf8,
     {
         std::ofstream ofs(tmp_path, std::ios::binary | std::ios::trunc);
         if (!ofs) {
-            error_out = "Cannot create temporary markdown file";
+            error_out = "Cannot create temporary output file";
             return false;
         }
         ofs.write(content.data(), static_cast<std::streamsize>(content.size()));
         if (!ofs) {
-            error_out = "Failed writing temporary markdown file";
+            error_out = "Failed writing temporary output file";
             return false;
         }
     }
-    if (std::rename(tmp_path.c_str(), md_path_utf8.c_str()) != 0) {
-        error_out = "Failed to replace destination markdown file";
+    if (std::rename(tmp_path.c_str(), path_utf8.c_str()) != 0) {
+        error_out = "Failed to replace destination output file";
         return false;
     }
 #endif
 
     error_out.clear();
     return true;
+}
+
+bool WriteMarkdownAtomic(const std::string& md_path_utf8,
+                         const std::string& content,
+                         std::string& error_out) {
+    return WriteTextAtomic(md_path_utf8, content, error_out);
 }
 
 }  // namespace pdf_to_md

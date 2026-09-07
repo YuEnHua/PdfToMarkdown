@@ -21,7 +21,16 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(PDF_TO_MD_STATIC_RUNTIME "Link MSVC runtime statically (/MT)" ON)
 option(PDF_TO_MD_BUILD_TESTS "Build PdfToMarkdown unit tests" ON)
 option(PDF_TO_MD_BUILD_CLI "Build PdfToMarkdown CLI" ON)
-option(PDF_TO_MD_BUILD_GUI "Build Win32 desktop GUI" ON)
+option(PDF_TO_MD_BUILD_GUI "Build desktop GUI (Win32 on Windows, .app on macOS)" ON)
+
+if(APPLE)
+    if(NOT CMAKE_OSX_ARCHITECTURES)
+        set(CMAKE_OSX_ARCHITECTURES "arm64" CACHE STRING "macOS arch" FORCE)
+    endif()
+    set(CMAKE_MACOSX_RPATH ON)
+    set(CMAKE_BUILD_WITH_INSTALL_RPATH ON)
+    set(CMAKE_INSTALL_RPATH "@loader_path;@loader_path/../lib;@loader_path/../Frameworks")
+endif()
 
 if(PDF_TO_MD_STATIC_RUNTIME AND MSVC)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
@@ -42,6 +51,17 @@ endif()
 
 list(APPEND CMAKE_MODULE_PATH "${MEDICAL_OCR_ROOT}/cmake")
 
+if(APPLE)
+    set(_macos_paddle "${CMAKE_CURRENT_SOURCE_DIR}/third_party/paddle_inference_macos")
+    if(NOT PADDLE_INFERENCE_DIR AND EXISTS "${_macos_paddle}/paddle/include/paddle_inference_api.h")
+        set(PADDLE_INFERENCE_DIR "${_macos_paddle}" CACHE PATH "Paddle Inference SDK" FORCE)
+    endif()
+    set(_macos_ocv "${CMAKE_CURRENT_SOURCE_DIR}/third_party/opencv-macos/lib/cmake/opencv4")
+    if(NOT OpenCV_DIR AND EXISTS "${_macos_ocv}/OpenCVConfig.cmake")
+        set(OpenCV_DIR "${_macos_ocv}" CACHE PATH "OpenCV CMake dir" FORCE)
+    endif()
+endif()
+
 # Reuse MedicalOCR dependency helpers (OpenCV / Paddle / nlohmann / optional gtest)
 set(MEDICAL_OCR_USE_OPENCV ON)
 set(MEDICAL_OCR_ENABLE_PADDLE ON)
@@ -49,10 +69,19 @@ set(MEDICAL_OCR_BUILD_TESTS ${PDF_TO_MD_BUILD_TESTS})
 include("${MEDICAL_OCR_ROOT}/cmake/Dependencies.cmake")
 
 set(PDF_TO_MD_VERSION "${PROJECT_VERSION}")
-set(PDFIUM_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium")
+if(APPLE)
+    set(PDFIUM_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium-macos")
+else()
+    set(PDFIUM_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/pdfium")
+endif()
 
 if(NOT EXISTS "${PDFIUM_ROOT}/include/fpdfview.h")
-    message(FATAL_ERROR "PDFium not found at ${PDFIUM_ROOT}. Run scripts/fetch_pdfium.ps1")
+    if(APPLE)
+        message(FATAL_ERROR
+            "PDFium macOS not found at ${PDFIUM_ROOT}. Run scripts/fetch_macos_deps.sh")
+    else()
+        message(FATAL_ERROR "PDFium not found at ${PDFIUM_ROOT}. Run scripts/fetch_pdfium.ps1")
+    endif()
 endif()
 
 if(NOT TARGET nlohmann_json::nlohmann_json)
@@ -71,11 +100,25 @@ endif()
 
 # ---- PDFium imported target ----
 add_library(pdfium SHARED IMPORTED GLOBAL)
-set_target_properties(pdfium PROPERTIES
-    IMPORTED_LOCATION "${PDFIUM_ROOT}/bin/pdfium.dll"
-    IMPORTED_IMPLIB "${PDFIUM_ROOT}/lib/pdfium.dll.lib"
-    INTERFACE_INCLUDE_DIRECTORIES "${PDFIUM_ROOT}/include"
-)
+if(WIN32)
+    set_target_properties(pdfium PROPERTIES
+        IMPORTED_LOCATION "${PDFIUM_ROOT}/bin/pdfium.dll"
+        IMPORTED_IMPLIB "${PDFIUM_ROOT}/lib/pdfium.dll.lib"
+        INTERFACE_INCLUDE_DIRECTORIES "${PDFIUM_ROOT}/include"
+    )
+    set(PDF_TO_MD_PDFIUM_RUNTIME "${PDFIUM_ROOT}/bin/pdfium.dll")
+else()
+    set(_pdfium_dylib "${PDFIUM_ROOT}/lib/libpdfium.dylib")
+    if(NOT EXISTS "${_pdfium_dylib}")
+        message(FATAL_ERROR "libpdfium.dylib not found at ${_pdfium_dylib}")
+    endif()
+    set_target_properties(pdfium PROPERTIES
+        IMPORTED_LOCATION "${_pdfium_dylib}"
+        INTERFACE_INCLUDE_DIRECTORIES "${PDFIUM_ROOT}/include"
+        IMPORTED_NO_SONAME TRUE
+    )
+    set(PDF_TO_MD_PDFIUM_RUNTIME "${_pdfium_dylib}")
+endif()
 
 # ---- Native sources ----
 set(PDF_TO_MD_NATIVE_SOURCES
@@ -120,14 +163,24 @@ target_link_libraries(PdfToMarkdown.Native
 )
 
 include("${MEDICAL_OCR_ROOT}/cmake/PaddleOcrVendor.cmake")
+
+if(APPLE)
+    set_target_properties(PdfToMarkdown.Native PROPERTIES
+        MACOSX_RPATH ON
+        INSTALL_NAME_DIR "@rpath"
+        BUILD_WITH_INSTALL_RPATH ON
+        INSTALL_RPATH "@loader_path;@loader_path/../Frameworks"
+    )
+endif()
+
 medical_ocr_link_paddle_vendor(PdfToMarkdown.Native)
 medical_ocr_copy_paddle_runtime(PdfToMarkdown.Native)
 
 add_custom_command(TARGET PdfToMarkdown.Native POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        "${PDFIUM_ROOT}/bin/pdfium.dll"
+        "${PDF_TO_MD_PDFIUM_RUNTIME}"
         $<TARGET_FILE_DIR:PdfToMarkdown.Native>
-    COMMENT "Copy pdfium.dll"
+    COMMENT "Copy PDFium runtime"
 )
 
 add_custom_command(TARGET PdfToMarkdown.Native POST_BUILD
@@ -152,6 +205,13 @@ if(PDF_TO_MD_BUILD_CLI)
     if(MSVC)
         target_compile_options(PdfToMarkdown.Cli PRIVATE /utf-8)
     endif()
+    if(APPLE)
+        set_target_properties(PdfToMarkdown.Cli PROPERTIES
+            MACOSX_RPATH ON
+            BUILD_WITH_INSTALL_RPATH ON
+            INSTALL_RPATH "@loader_path;@loader_path/../Frameworks"
+        )
+    endif()
     add_custom_command(TARGET PdfToMarkdown.Cli POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             $<TARGET_FILE:PdfToMarkdown.Native>
@@ -173,10 +233,12 @@ if(PDF_TO_MD_BUILD_GUI AND WIN32)
             $<TARGET_FILE:PdfToMarkdown.Native>
             $<TARGET_FILE_DIR:PdfToMarkdown.Gui>
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "${PDFIUM_ROOT}/bin/pdfium.dll"
+            "${PDF_TO_MD_PDFIUM_RUNTIME}"
             $<TARGET_FILE_DIR:PdfToMarkdown.Gui>
     )
 endif()
+
+# macOS .app is assembled by scripts/package_macos.sh after CLI build.
 
 # ---- Tests ----
 if(PDF_TO_MD_BUILD_TESTS)

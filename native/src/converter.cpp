@@ -73,6 +73,8 @@ bool Converter::Initialize(const std::string& models_dir_utf8,
             options_.column_min_boxes_per_side = cfg.value(
                 "column_min_boxes_per_side",
                 options_.column_min_boxes_per_side);
+            options_.flush_each_page =
+                cfg.value("flush_each_page", options_.flush_each_page);
             engine_cfg["cpu_threads"] = options_.cpu_threads;
             engine_cfg["minimum_confidence"] = options_.minimum_confidence;
             engine_cfg["enable_mkldnn"] = cfg.value("enable_mkldnn", false);
@@ -156,6 +158,27 @@ int Converter::Convert(const std::string& pdf_path_utf8,
 
         std::vector<PageMarkdown> pages;
         pages.reserve(static_cast<size_t>(total));
+        const std::string txt_path = DeriveTxtPathFromMdPath(md_path_utf8);
+
+        auto flush_outputs = [&](const char* progress_msg) -> int {
+            if (progress && progress_msg) {
+                progress(static_cast<int>(pages.size()), total, progress_msg);
+            }
+            const std::string md =
+                BuildMarkdownDocument(pdf_path_utf8, pages);
+            const std::string txt =
+                BuildPlainTextDocument(pdf_path_utf8, pages);
+            std::string write_err;
+            if (!WriteTextAtomic(md_path_utf8, md, write_err)) {
+                SetError(write_err);
+                return PDFMD_ERR_WRITE_FAILED;
+            }
+            if (!WriteTextAtomic(txt_path, txt, write_err)) {
+                SetError(write_err);
+                return PDFMD_ERR_WRITE_FAILED;
+            }
+            return PDFMD_OK;
+        };
 
         for (int i = 0; i < total; ++i) {
             if (cancel_requested_) {
@@ -208,6 +231,15 @@ int Converter::Convert(const std::string& pdf_path_utf8,
 
             pages.push_back(PageToMarkdown(i, ocr, options_));
 
+            if (options_.flush_each_page) {
+                const int write_rc = flush_outputs(
+                    ("Writing page " + std::to_string(i + 1)).c_str());
+                if (write_rc != PDFMD_OK) {
+                    busy_ = false;
+                    return write_rc;
+                }
+            }
+
             if (progress) {
                 progress(i + 1, total,
                          "Finished page " + std::to_string(i + 1));
@@ -220,15 +252,14 @@ int Converter::Convert(const std::string& pdf_path_utf8,
             return PDFMD_ERR_CANCELLED;
         }
 
-        if (progress) progress(total, total, "Writing Markdown");
-
-        const std::string md =
-            BuildMarkdownDocument(pdf_path_utf8, pages);
-        std::string write_err;
-        if (!WriteMarkdownAtomic(md_path_utf8, md, write_err)) {
-            SetError(write_err);
-            busy_ = false;
-            return PDFMD_ERR_WRITE_FAILED;
+        // Final write when per-page flush is off; with flush on, last page
+        // already wrote the complete document.
+        if (!options_.flush_each_page) {
+            const int write_rc = flush_outputs("Writing Markdown");
+            if (write_rc != PDFMD_OK) {
+                busy_ = false;
+                return write_rc;
+            }
         }
 
         SetError("");

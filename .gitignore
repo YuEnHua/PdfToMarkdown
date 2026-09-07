@@ -10,3 +10,7 @@ app/**/obj/
 samples/*.out.md
 samples/bench.md
 native/**/*.obj
+third_party/pdfium-macos/
+third_party/paddle_inference_macos/
+third_party/opencv-macos/
+third_party/_macos_download/

@@ -4,15 +4,18 @@
 
 ```mermaid
 flowchart LR
-    PDF["input.pdf<br/>bytes on disk"] --> Open["PdfRenderer::Open<br/>load into memory"]
-    Open --> Loop["for page i = 0..N-1"]
-    Loop --> Render["RenderPage(i, dpi)<br/>→ cv::Mat BGR"]
-    Render --> Recog["PaddleOcrEngine::RecognizeMat<br/>→ OcrResult"]
-    Recog --> Order["PageToMarkdown<br/>→ PageMarkdown"]
-    Order --> Acc["vector of PageMarkdown"]
-    Acc --> Build["BuildMarkdownDocument<br/>→ UTF-8 string"]
-    Build --> Write["WriteMarkdownAtomic<br/>→ output.md"]
+    PDF["input.pdf"] --> Open["PdfRenderer::Open"]
+    Open --> Loop["for page i"]
+    Loop --> Render["RenderPage → Mat BGR"]
+    Render --> Recog["RecognizeMat → OcrResult"]
+    Recog --> Order["PageToMarkdown"]
+    Order --> Acc["pages so far"]
+    Acc --> Dual["Build MD + TXT"]
+    Dual --> Write["WriteTextAtomic<br/>.md 与 .txt"]
+    Write -->|"flush_each_page"| Loop
 ```
+
+默认 **每页 OCR 完成后** 原子重写同名 `.md` 与 `.txt`（`flush_each_page`），意外退出仍保留已完成页。TXT 路径由 MD 路径替换扩展名得到。
 
 ## 各阶段数据结构
 

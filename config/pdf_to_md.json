@@ -12,6 +12,7 @@
   "enable_column_detection": true,
   "column_gap_min_ratio": 0.10,
   "column_min_boxes_per_side": 2,
+  "flush_each_page": true,
   "models_dir": "",
   "det_model_name": "PP-OCRv6_small_det",
   "rec_model_name": "PP-OCRv6_small_rec"

@@ -38,6 +38,30 @@ TEST(MarkdownWriter, BuildsPagesWithMarkers) {
     EXPECT_NE(md.find("第二段"), std::string::npos);
 }
 
+TEST(MarkdownWriter, BuildsPlainTextWithoutEscapes) {
+    std::vector<pdf_to_md::PageMarkdown> pages(2);
+    pages[0].page_index = 0;
+    pages[0].paragraphs = {"Hello *world*"};
+    pages[1].page_index = 1;
+    pages[1].paragraphs = {"第二段"};
+
+    const std::string txt =
+        pdf_to_md::BuildPlainTextDocument("scan.pdf", pages);
+    EXPECT_NE(txt.find("----- page 1 -----"), std::string::npos);
+    EXPECT_NE(txt.find("----- page 2 -----"), std::string::npos);
+    EXPECT_NE(txt.find("Hello *world*"), std::string::npos);
+    EXPECT_EQ(txt.find("\\*"), std::string::npos);
+    EXPECT_NE(txt.find("第二段"), std::string::npos);
+    EXPECT_EQ(txt.find("<!--"), std::string::npos);
+}
+
+TEST(MarkdownWriter, DeriveTxtPathFromMd) {
+    EXPECT_EQ(pdf_to_md::DeriveTxtPathFromMdPath("C:\\out\\scan.md"),
+              "C:\\out\\scan.txt");
+    EXPECT_EQ(pdf_to_md::DeriveTxtPathFromMdPath("/tmp/a.MD"), "/tmp/a.txt");
+    EXPECT_EQ(pdf_to_md::DeriveTxtPathFromMdPath("noext"), "noext.txt");
+}
+
 TEST(MarkdownWriter, AtomicWriteRoundTrip) {
 #ifdef _WIN32
     wchar_t temp_dir[MAX_PATH] = {};

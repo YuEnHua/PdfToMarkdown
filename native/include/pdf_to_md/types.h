@@ -33,6 +33,9 @@ struct ConvertOptions {
     float column_gap_min_ratio = 0.10f;
     /// Each side must have at least this many non-empty text boxes.
     int column_min_boxes_per_side = 2;
+
+    /// After each page OCR, rebuild and atomically rewrite .md and .txt.
+    bool flush_each_page = true;
 };
 
 struct TextLine {

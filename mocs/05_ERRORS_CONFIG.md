@@ -39,7 +39,8 @@ Create 时传入，或参考 `config/pdf_to_md.json`：
   "enable_blank_line_detection": true,
   "enable_column_detection": true,
   "column_gap_min_ratio": 0.10,
-  "column_min_boxes_per_side": 2
+  "column_min_boxes_per_side": 2,
+  "flush_each_page": true
 }
 ```
 
@@ -50,6 +51,7 @@ Create 时传入，或参考 `config/pdf_to_md.json`：
 | `line_y_tolerance_ratio` / `paragraph_gap_ratio` | `PageToMarkdown` |
 | `enable_*_blank_*` | `blank_line_detector` |
 | `enable_column_detection` / `column_*` | `FindColumnSplitX` / `PageToMarkdown` |
+| `flush_each_page` | 每页后原子重写 `.md` 与 `.txt`（默认 true） |
 
 DPI 在代码里会钳到 **150–300**。
 
@@ -59,10 +61,11 @@ DPI 在代码里会钳到 **150–300**。
 
 ```text
 Cancel() 只置位 cancel_requested_
-真正停止点：页循环顶部 / 渲染后 / 全部页后写文件前
+真正停止点：页循环顶部 / 渲染后
+已完成页若开启 flush_each_page 已写入 .md/.txt
 ```
 
-因此取消可能发生在「当前页 OCR 已开始之后」，最坏再等一页 OCR 结束。
+因此取消可能发生在「当前页 OCR 已开始之后」，最坏再等一页 OCR 结束；此前页已落盘。
 
 ---
 

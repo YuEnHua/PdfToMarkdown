@@ -1,0 +1,74 @@
+# Build portable PdfToMarkdown.app on GitHub-hosted Apple Silicon (macos-14/15).
+# Trigger: Actions → macos-arm64 → Run workflow
+name: macos-arm64
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/macos-arm64.yml"
+      - "CMakeLists.txt"
+      - "native/**"
+      - "cli/**"
+      - "app/macos/**"
+      - "scripts/build_macos.sh"
+      - "scripts/package_macos.sh"
+      - "scripts/fetch_macos_deps.py"
+
+jobs:
+  package:
+    name: Build macOS arm64 zip
+    runs-on: macos-14
+    timeout-minutes: 90
+    steps:
+      - name: Checkout PdfToMarkdown
+        uses: actions/checkout@v4
+        with:
+          path: PdfToMarkdown
+
+      - name: Checkout sibling MedicalOCR
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/MedicalOCR
+          path: MedicalOCR
+          token: ${{ secrets.MEDICAL_OCR_TOKEN || github.token }}
+
+      - name: Show runner arch
+        run: uname -m && sw_vers
+
+      - name: Fetch Paddle / PDFium / OpenCV (arm64)
+        working-directory: PdfToMarkdown
+        run: |
+          chmod +x scripts/*.sh app/macos/launcher.sh
+          python3 scripts/fetch_macos_deps.py
+
+      - name: Fetch PP-OCRv6 models
+        working-directory: PdfToMarkdown
+        run: python3 scripts/fetch_ppocrv6_models.py "$PWD/models"
+
+      - name: Configure and build
+        working-directory: PdfToMarkdown
+        run: |
+          cmake -S . -B build-macos \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DPDF_TO_MD_STATIC_RUNTIME=OFF \
+            -DPDF_TO_MD_BUILD_TESTS=OFF \
+            -DMEDICAL_OCR_ROOT="${GITHUB_WORKSPACE}/MedicalOCR" \
+            -DPADDLE_INFERENCE_DIR="$PWD/third_party/paddle_inference_macos" \
+            -DOpenCV_DIR="$PWD/third_party/opencv-macos/lib/cmake/opencv4"
+          cmake --build build-macos --config Release --target PdfToMarkdown.Native PdfToMarkdown.Cli -j 4
+
+      - name: Package .app zip
+        working-directory: PdfToMarkdown
+        env:
+          MODELS_SRC: ${{ github.workspace }}/PdfToMarkdown/models
+        run: bash scripts/package_macos.sh
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PdfToMarkdown-1.0.0-macos-arm64
+          path: PdfToMarkdown/release/PdfToMarkdown-1.0.0-macos-arm64.zip
+          if-no-files-found: error
+          retention-days: 14

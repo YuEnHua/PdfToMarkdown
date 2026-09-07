@@ -3,11 +3,13 @@
  *
  * Usage:
  *   PdfToMarkdown.Cli.exe input.pdf -o output.md --dpi 200 --models <dir>
+ *   PdfToMarkdown.Cli.exe a.pdf b.pdf --models <dir>   # batch: sibling .md+.txt
  */
 
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -22,6 +24,10 @@ void PrintUsage() {
         "PdfToMarkdown CLI 1.0.0\n"
         "Usage:\n"
         "  PdfToMarkdown.Cli <input.pdf> -o <output.md> [options]\n"
+        "  PdfToMarkdown.Cli <a.pdf> [b.pdf ...] [options]\n"
+        "Notes:\n"
+        "  Always writes sibling .md and .txt (txt derived from md path).\n"
+        "  Batch (multiple PDFs): omit -o; each output is beside the PDF.\n"
         "Options:\n"
         "  --models <dir>   PP-OCRv6 models directory\n"
         "  --dpi <n>        Render DPI (150-300, default 200)\n"
@@ -31,20 +37,36 @@ void PrintUsage() {
 
 struct ProgressState {
     int last_page = -1;
+    int file_index = 0;
+    int file_count = 0;
 };
 
 void OnProgress(void* user, int current, int total, const char* message) {
     auto* st = static_cast<ProgressState*>(user);
     if (current != st->last_page) {
         st->last_page = current;
-        std::printf("[%d/%d] %s\n", current, total, message ? message : "");
+        if (st->file_count > 1) {
+            std::printf("[file %d/%d] [%d/%d] %s\n", st->file_index,
+                        st->file_count, current, total,
+                        message ? message : "");
+        } else {
+            std::printf("[%d/%d] %s\n", current, total,
+                        message ? message : "");
+        }
         std::fflush(stdout);
     }
 }
 
-std::string DefaultModelsDir() {
-    // Prefer sibling models from MedicalOCR, then Environment.
-    return "models";
+std::string DefaultModelsDir() { return "models"; }
+
+std::string SuggestMdPath(const std::string& pdf) {
+    const size_t slash = pdf.find_last_of("/\\");
+    const size_t start = (slash == std::string::npos) ? 0 : slash + 1;
+    const size_t dot = pdf.find_last_of('.');
+    if (dot != std::string::npos && dot > start) {
+        return pdf.substr(0, dot) + ".md";
+    }
+    return pdf + ".md";
 }
 
 }  // namespace
@@ -60,7 +82,7 @@ int main(int argc, char** argv) {
         return 2;
     }
 
-    std::string input;
+    std::vector<std::string> inputs;
     std::string output;
     std::string models = DefaultModelsDir();
     int dpi = 200;
@@ -92,23 +114,29 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "Unknown option: %s\n", a);
             return 2;
         }
-        if (input.empty()) {
-            input = a;
-        } else {
-            std::fprintf(stderr, "Unexpected argument: %s\n", a);
-            return 2;
-        }
+        inputs.push_back(a);
     }
 
-    if (input.empty() || output.empty()) {
+    if (inputs.empty()) {
         PrintUsage();
         return 2;
     }
 
+    if (inputs.size() > 1 && !output.empty()) {
+        std::fprintf(stderr,
+                     "Batch mode: omit -o; each PDF writes sibling .md/.txt\n");
+        return 2;
+    }
+
+    if (inputs.size() == 1 && output.empty()) {
+        output = SuggestMdPath(inputs[0]);
+    }
+
     char config[256];
     std::snprintf(config, sizeof(config),
-                  "{\"dpi\":%d,\"cpu_threads\":%d,\"enable_mkldnn\":false}", dpi,
-                  threads);
+                  "{\"dpi\":%d,\"cpu_threads\":%d,\"enable_mkldnn\":false,"
+                  "\"flush_each_page\":true}",
+                  dpi, threads);
 
     PdfToMdHandle handle = nullptr;
     int rc = PdfToMd_Create(models.c_str(), config, &handle);
@@ -118,16 +146,31 @@ int main(int argc, char** argv) {
         return rc;
     }
 
+    int ok = 0;
+    int failed = 0;
     ProgressState st;
-    rc = PdfToMd_Convert(handle, input.c_str(), output.c_str(), OnProgress, &st);
-    if (rc != PDFMD_OK) {
-        std::fprintf(stderr, "Convert failed (%d): %s\n", rc,
-                     PdfToMd_GetLastError(handle));
-        PdfToMd_Destroy(handle);
-        return rc;
+    st.file_count = static_cast<int>(inputs.size());
+
+    for (size_t i = 0; i < inputs.size(); ++i) {
+        st.file_index = static_cast<int>(i + 1);
+        st.last_page = -1;
+        const std::string md =
+            (inputs.size() == 1) ? output : SuggestMdPath(inputs[i]);
+        rc = PdfToMd_Convert(handle, inputs[i].c_str(), md.c_str(), OnProgress,
+                             &st);
+        if (rc != PDFMD_OK) {
+            std::fprintf(stderr, "Convert failed (%d) %s: %s\n", rc,
+                         inputs[i].c_str(), PdfToMd_GetLastError(handle));
+            ++failed;
+            if (rc == PDFMD_ERR_CANCELLED) break;
+            continue;
+        }
+        std::printf("OK: %s (+ .txt)\n", md.c_str());
+        ++ok;
     }
 
-    std::printf("OK: %s\n", output.c_str());
     PdfToMd_Destroy(handle);
+    if (failed > 0 && ok == 0) return rc != PDFMD_OK ? rc : 1;
+    if (failed > 0) return 1;
     return 0;
 }

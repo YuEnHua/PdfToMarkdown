@@ -15,8 +15,26 @@ std::string BuildMarkdownDocument(
     const std::vector<PageMarkdown>& pages);
 
 /**
- * Write UTF-8 Markdown (no BOM) via temp file then atomic replace.
+ * Plain-text export (no Markdown escaping). Page markers as
+ * "----- page N -----"; paragraphs separated by blank lines.
  */
+std::string BuildPlainTextDocument(
+    const std::string& source_pdf_name,
+    const std::vector<PageMarkdown>& pages);
+
+/** Derive sibling .txt path from a .md (or any) output path. */
+std::string DeriveTxtPathFromMdPath(const std::string& md_path_utf8);
+
+/**
+ * Write UTF-8 text (no BOM) via temp file then atomic replace.
+ * Used for both .md and .txt.
+ */
+bool WriteTextAtomic(
+    const std::string& path_utf8,
+    const std::string& content,
+    std::string& error_out);
+
+/** Alias kept for callers/tests; same as WriteTextAtomic. */
 bool WriteMarkdownAtomic(
     const std::string& md_path_utf8,
     const std::string& content,
