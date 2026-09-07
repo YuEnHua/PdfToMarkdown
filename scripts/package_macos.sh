@@ -83,6 +83,10 @@ if command -v install_name_tool >/dev/null 2>&1; then
           /usr/lib/*|/System/*|@rpath/*|@loader_path/*|@executable_path/*) continue ;;
         esac
         n="$(basename "$dep")"
+        if [[ "$n" == "libc++.1.dylib" ]]; then
+          install_name_tool -change "$dep" "/usr/lib/libc++.1.dylib" "$bin" 2>/dev/null || true
+          continue
+        fi
         if [[ -f "$FW/$n" ]]; then
           install_name_tool -change "$dep" "@rpath/$n" "$bin" 2>/dev/null || true
         fi

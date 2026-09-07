@@ -49,6 +49,20 @@ OPENCV_CONDA = [
     "libjxl-0.12.0-hb71b141_2.conda",
     "openexr-3.4.15-h3105456_0.conda",
     "imath-3.2.2-h3470cca_0.conda",
+    # imgcodecs transitive deps (missing these makes the CLI fail to launch)
+    "libdeflate-1.26-h72bfca4_0.conda",
+    "libhwy-1.4.0-hd2bdd19_1.conda",
+    "libbrotlicommon-1.2.0-hbdf4d5a_2.conda",
+    "libbrotlidec-1.2.0-h5ac4100_2.conda",
+    "libbrotlienc-1.2.0-h2ddc9cb_4.conda",
+    "zstd-1.5.7-hf451053_7.conda",
+    "xz-5.8.3-hd0f0c4f_1.conda",
+    "lerc-4.2.0-h1eee2c3_0.conda",
+    "dav1d-1.5.4-h97a82a1_4.conda",
+    "aom-3.9.1-h7bae524_0.conda",
+    "rav1e-0.8.1-h8246384_0.conda",
+    "svt-av1-4.2.0-h484c67d_1.conda",
+    "openjph-0.31.0-h2a4d681_0.conda",
 ]
 
 

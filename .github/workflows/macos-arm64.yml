@@ -70,6 +70,7 @@ jobs:
         run: |
           APP=release/PdfToMarkdown-1.0.0-macos-arm64/PdfToMarkdown.app
           otool -L "$APP/Contents/MacOS/PdfToMarkdown.Cli"
+          otool -L "$APP/Contents/Frameworks/libopencv_imgcodecs.413.dylib"
           "$APP/Contents/MacOS/PdfToMarkdown.Cli" --help
 
       - name: Upload artifact
