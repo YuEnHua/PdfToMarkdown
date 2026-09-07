@@ -77,20 +77,23 @@ if command -v install_name_tool >/dev/null 2>&1; then
     fi
     install_name_tool -add_rpath "@loader_path/../Frameworks" "$bin" 2>/dev/null || true
     install_name_tool -add_rpath "@loader_path" "$bin" 2>/dev/null || true
+    # Conda OpenCV links libc++ via @rpath; macOS provides it at /usr/lib.
+    install_name_tool -change "@rpath/libc++.1.dylib" "/usr/lib/libc++.1.dylib" "$bin" 2>/dev/null || true
     if command -v otool >/dev/null 2>&1; then
-      otool -L "$bin" | awk '/^\t/ {print $1}' | while read -r dep; do
-        case "$dep" in
-          /usr/lib/*|/System/*|@rpath/*|@loader_path/*|@executable_path/*) continue ;;
-        esac
+      while IFS= read -r dep; do
+        [[ -z "$dep" ]] && continue
         n="$(basename "$dep")"
         if [[ "$n" == "libc++.1.dylib" ]]; then
           install_name_tool -change "$dep" "/usr/lib/libc++.1.dylib" "$bin" 2>/dev/null || true
           continue
         fi
+        case "$dep" in
+          /usr/lib/*|/System/*|@rpath/*|@loader_path/*|@executable_path/*) continue ;;
+        esac
         if [[ -f "$FW/$n" ]]; then
           install_name_tool -change "$dep" "@rpath/$n" "$bin" 2>/dev/null || true
         fi
-      done
+      done < <(otool -L "$bin" | awk '/^\t/ {print $1}')
     fi
   done
   shopt -u nullglob
