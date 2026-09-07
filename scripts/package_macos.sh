@@ -31,19 +31,94 @@ if [[ -n "$BIN" ]]; then
   chmod +x "${MACOS}/PdfToMarkdown.Cli"
   shopt -s nullglob
   for f in "${BIN}"/*.dylib "${BIN}"/PdfToMarkdown.Native.dylib; do
-    [[ -f "$f" ]] && cp "$f" "$FW/"
+    [[ -f "$f" ]] && cp -L "$f" "$FW/"
   done
   shopt -u nullglob
 fi
 
-# Always stage downloaded prebuilts so rpath neighbors exist.
 [[ -f "${ROOT}/third_party/pdfium-macos/lib/libpdfium.dylib" ]] && \
-  cp "${ROOT}/third_party/pdfium-macos/lib/libpdfium.dylib" "$FW/"
+  cp -L "${ROOT}/third_party/pdfium-macos/lib/libpdfium.dylib" "$FW/"
 if [[ -d "${ROOT}/third_party/paddle_inference_macos/paddle/lib" ]]; then
-  cp "${ROOT}/third_party/paddle_inference_macos/paddle/lib/"*.dylib "$FW/" 2>/dev/null || true
+  shopt -s nullglob
+  for f in "${ROOT}/third_party/paddle_inference_macos/paddle/lib/"*.dylib; do
+    cp -L "$f" "$FW/"
+  done
+  shopt -u nullglob
 fi
-if [[ -d "${ROOT}/third_party/opencv-macos/lib" ]]; then
-  cp "${ROOT}/third_party/opencv-macos/lib/"*.dylib "$FW/" 2>/dev/null || true
+
+SEARCH_LIBS=(
+  "${BIN:-}"
+  "${ROOT}/third_party/opencv-macos/lib"
+  "${ROOT}/third_party/paddle_inference_macos/paddle/lib"
+  "${ROOT}/third_party/pdfium-macos/lib"
+)
+
+find_src() {
+  local want="$1"
+  local d stem hit
+  for d in "${SEARCH_LIBS[@]}"; do
+    [[ -n "$d" && -d "$d" ]] || continue
+    if [[ -e "$d/$want" ]]; then
+      echo "$d/$want"
+      return 0
+    fi
+  done
+  stem="${want%.dylib}"
+  stem="${stem%.*}"
+  for d in "${SEARCH_LIBS[@]}"; do
+    [[ -n "$d" && -d "$d" ]] || continue
+    shopt -s nullglob
+    for hit in "$d/${stem}".dylib "$d/${stem}".*.dylib; do
+      if [[ -e "$hit" ]]; then
+        echo "$hit"
+        shopt -u nullglob
+        return 0
+      fi
+    done
+    shopt -u nullglob
+  done
+  return 1
+}
+
+is_system_dep() {
+  case "$1" in
+    /usr/lib/*|/System/*) return 0 ;;
+  esac
+  return 1
+}
+
+# Pull the transitive dylib closure instead of globbing unused OpenCV contrib.
+if command -v otool >/dev/null 2>&1; then
+  changed=1
+  while [[ "$changed" == 1 ]]; do
+    changed=0
+    shopt -s nullglob
+    for bin in "${MACOS}/PdfToMarkdown.Cli" "${FW}"/*.dylib; do
+      [[ -f "$bin" ]] || continue
+      while IFS= read -r dep; do
+        [[ -z "$dep" ]] && continue
+        is_system_dep "$dep" && continue
+        n="$(basename "$dep")"
+        [[ "$n" == "libc++.1.dylib" ]] && continue
+        if [[ ! -e "$FW/$n" ]]; then
+          if src="$(find_src "$n")"; then
+            echo "  copy $(basename "$src") -> Frameworks/$n"
+            cp -L "$src" "$FW/$n"
+            changed=1
+          else
+            echo "WARNING: missing $n (needed by $(basename "$bin"))" >&2
+          fi
+        fi
+      done < <(otool -L "$bin" | awk '/^\t/ {print $1}')
+    done
+    shopt -u nullglob
+  done
+elif [[ -d "${ROOT}/third_party/opencv-macos/lib" ]]; then
+  shopt -s nullglob
+  for f in "${ROOT}/third_party/opencv-macos/lib/"*.dylib; do
+    cp -L "$f" "$FW/"
+  done
+  shopt -u nullglob
 fi
 
 cp "${ROOT}/config/pdf_to_md.json" "${RES}/config/"

@@ -59,6 +59,9 @@ OPENCV_CONDA = [
     "xz-5.8.3-hd0f0c4f_1.conda",
     "lerc-4.2.0-h1eee2c3_0.conda",
     "dav1d-1.5.4-h97a82a1_4.conda",
+    "libdav1d-1.5.4-h820172f_3.conda",
+    "liblzma-5.8.3-h8088a28_0.conda",
+    "libgfortran5-14.2.0-h6c33f7e_0.conda",
     "aom-3.9.1-h7bae524_0.conda",
     "rav1e-0.8.1-h8246384_0.conda",
     "svt-av1-4.2.0-h484c67d_1.conda",
@@ -243,6 +246,13 @@ def fetch_opencv() -> None:
         raise RuntimeError(
             "OpenCV extract missing headers. " + "; ".join(errors[:4])
         )
+    lib = OPENCV_DIR / "lib"
+    if lib.is_dir():
+        names = sorted(p.name for p in lib.glob("*.dylib"))
+        log("  dylibs: " + ", ".join(names[:40]) + (" ..." if len(names) > 40 else ""))
+        for key in ("dav1d", "gfortran", "lzma", "deflate", "lapack"):
+            hits = [n for n in names if key in n.lower()]
+            log(f"  has {key}: {hits[:8] or 'NONE'}")
     log(f"  ok {OPENCV_DIR}")
 
 
