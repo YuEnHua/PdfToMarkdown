@@ -12,9 +12,14 @@ else
 fi
 ARGS=("$@")
 if command -v brew >/dev/null 2>&1; then
-  _ocv="$(brew --prefix opencv 2>/dev/null || true)"
-  if [[ -n "$_ocv" && -f "$_ocv/lib/cmake/opencv4/OpenCVConfig.cmake" ]]; then
-    ARGS+=(--skip-opencv)
-  fi
+  for formula in opencv@4 opencv; do
+    _ocv="$(brew --prefix "$formula" 2>/dev/null || true)"
+    for d in "$_ocv/lib/cmake/opencv4" "$_ocv/lib/cmake/opencv5"; do
+      if [[ -n "$_ocv" && -f "$d/OpenCVConfig.cmake" ]]; then
+        ARGS+=(--skip-opencv)
+        break 2
+      fi
+    done
+  done
 fi
 exec "$PY" "$ROOT/scripts/fetch_macos_deps.py" "${ARGS[@]}"

@@ -36,14 +36,15 @@ if [[ -n "$BIN" ]]; then
   shopt -u nullglob
 fi
 
-# CMake copies Paddle/OpenCV into Native's LIBRARY output (build-macos/lib).
+# CMake copies Paddle into Native's output dir. Do not glob OpenCV here;
+# the otool walker pulls only modules actually linked.
 if [[ -d "${ROOT}/build-macos/lib" ]]; then
   shopt -s nullglob
   for f in "${ROOT}/build-macos/lib/"*.dylib; do
     [[ -f "$f" && -e "$f" ]] || continue
     n="$(basename "$f")"
     case "$n" in
-      *gfortran*|*quadmath*|*lapack-netlib*) continue ;;
+      libopencv_*|*gfortran*|*quadmath*|*lapack-netlib*) continue ;;
     esac
     [[ -e "$FW/$n" ]] && continue
     cp -L "$f" "$FW/$n"
@@ -65,14 +66,23 @@ SEARCH_LIBS=(
 )
 if [[ -d /opt/homebrew/opt ]]; then
   shopt -s nullglob
-  for d in /opt/homebrew/opt/*/lib; do
+  for d in /opt/homebrew/opt/*/lib /opt/homebrew/opt/gcc/lib/gcc/* /opt/homebrew/lib/gcc/*; do
+    [[ -d "$d" ]] && SEARCH_LIBS+=("$d")
+  done
+  shopt -u nullglob
+fi
+if [[ -d "${ROOT}/third_party/paddle_inference_macos/third_party/install" ]]; then
+  shopt -s nullglob
+  for d in "${ROOT}/third_party/paddle_inference_macos/third_party/install"/*/lib; do
     [[ -d "$d" ]] && SEARCH_LIBS+=("$d")
   done
   shopt -u nullglob
 fi
 if command -v brew >/dev/null 2>&1; then
-  _brew_ocv="$(brew --prefix opencv 2>/dev/null || true)"
-  [[ -n "$_brew_ocv" && -d "$_brew_ocv/lib" ]] && SEARCH_LIBS+=("$_brew_ocv/lib")
+  for formula in opencv@4 opencv; do
+    _brew_ocv="$(brew --prefix "$formula" 2>/dev/null || true)"
+    [[ -n "$_brew_ocv" && -d "$_brew_ocv/lib" ]] && SEARCH_LIBS+=("$_brew_ocv/lib")
+  done
   _brew_lib="$(brew --prefix 2>/dev/null || true)/lib"
   [[ -d "$_brew_lib" ]] && SEARCH_LIBS+=("$_brew_lib")
 fi
@@ -100,6 +110,9 @@ find_src() {
     [[ -n "$d" && -d "$d" ]] || continue
     shopt -s nullglob
     for hit in "$d/${stem}".dylib "$d/${stem}".*.dylib; do
+      case "$hit" in
+        *netlib*|*gfortran*|*quadmath*) continue ;;
+      esac
       if [[ -e "$hit" ]]; then
         echo "$hit"
         shopt -u nullglob
@@ -176,27 +189,45 @@ elif [[ ! -d "${RES}/models/PP-OCRv6_small_det" ]]; then
   exit 1
 fi
 
+load_rpaths() {
+  otool -l "$1" 2>/dev/null | awk '
+    $2=="LC_RPATH" {want=1}
+    want && $1=="path" {print $2; want=0}
+  '
+}
+
 if command -v install_name_tool >/dev/null 2>&1; then
   shopt -s nullglob
   for bin in "${MACOS}/PdfToMarkdown.Cli" "${FW}"/*.dylib; do
     [[ -f "$bin" ]] || continue
     chmod u+w "$bin" 2>/dev/null || true
+    codesign --remove-signature "$bin" 2>/dev/null || true
     if [[ "$bin" == *.dylib ]]; then
-      install_name_tool -id "@rpath/$(basename "$bin")" "$bin" 2>/dev/null || true
+      install_name_tool -id "@rpath/$(basename "$bin")" "$bin"
     fi
+    while IFS= read -r rp; do
+      [[ -z "$rp" ]] && continue
+      case "$rp" in
+        /opt/homebrew/*|/Users/*|/usr/local/*)
+          install_name_tool -delete_rpath "$rp" "$bin" || true
+          ;;
+      esac
+    done < <(load_rpaths "$bin")
     install_name_tool -add_rpath "@loader_path/../Frameworks" "$bin" 2>/dev/null || true
     install_name_tool -add_rpath "@loader_path" "$bin" 2>/dev/null || true
     while IFS= read -r dep; do
       [[ -z "$dep" ]] && continue
       n="$(basename "$dep")"
       if [[ "$n" == "libc++.1.dylib" || "$n" == "libc++abi.1.dylib" ]]; then
-        install_name_tool -change "$dep" "/usr/lib/${n}" "$bin" 2>/dev/null || true
+        if [[ "$dep" != "/usr/lib/${n}" ]]; then
+          install_name_tool -change "$dep" "/usr/lib/${n}" "$bin"
+        fi
         continue
       fi
       is_system_dep "$dep" && continue
       if [[ -f "$FW/$n" ]]; then
         if [[ "$dep" != "@rpath/$n" ]]; then
-          install_name_tool -change "$dep" "@rpath/$n" "$bin" 2>/dev/null || true
+          install_name_tool -change "$dep" "@rpath/$n" "$bin"
         fi
       else
         echo "ERROR: cannot rewrite $dep (not in Frameworks)" >&2
@@ -229,6 +260,15 @@ if command -v install_name_tool >/dev/null 2>&1; then
         bad=1
       fi
     done < <(load_dylibs "$bin")
+    while IFS= read -r rp; do
+      [[ -z "$rp" ]] && continue
+      case "$rp" in
+        /opt/homebrew/*|/Users/*|/usr/local/*)
+          echo "ERROR: leftover LC_RPATH in $(basename "$bin"): $rp" >&2
+          bad=1
+          ;;
+      esac
+    done < <(load_rpaths "$bin")
   done
   shopt -u nullglob
   [[ "$bad" == 0 ]] || exit 1

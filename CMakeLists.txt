@@ -170,6 +170,7 @@ if(APPLE)
         INSTALL_NAME_DIR "@rpath"
         BUILD_WITH_INSTALL_RPATH ON
         INSTALL_RPATH "@loader_path;@loader_path/../Frameworks"
+        LIBRARY_OUTPUT_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
     )
 endif()
 

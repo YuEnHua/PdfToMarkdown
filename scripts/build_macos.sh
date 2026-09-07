@@ -18,10 +18,15 @@ fi
 
 OCV_DIR="$ROOT/third_party/opencv-macos/lib/cmake/opencv4"
 if command -v brew >/dev/null 2>&1; then
-  BREW_OCV="$(brew --prefix opencv 2>/dev/null || true)"
-  if [[ -n "$BREW_OCV" && -f "$BREW_OCV/lib/cmake/opencv4/OpenCVConfig.cmake" ]]; then
-    OCV_DIR="$BREW_OCV/lib/cmake/opencv4"
-  fi
+  for formula in opencv@4 opencv; do
+    BREW_OCV="$(brew --prefix "$formula" 2>/dev/null || true)"
+    for d in "$BREW_OCV/lib/cmake/opencv4" "$BREW_OCV/lib/cmake/opencv5"; do
+      if [[ -n "$BREW_OCV" && -f "$d/OpenCVConfig.cmake" ]]; then
+        OCV_DIR="$d"
+        break 2
+      fi
+    done
+  done
 fi
 
 cmake -S "$ROOT" -B "$ROOT/build-macos" \

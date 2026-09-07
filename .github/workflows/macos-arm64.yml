@@ -37,13 +37,19 @@ jobs:
       - name: Show runner arch
         run: uname -m && sw_vers
 
-      - name: Install Homebrew OpenCV
+      - name: Install Homebrew OpenCV 4
         env:
           HOMEBREW_NO_AUTO_UPDATE: "1"
           HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
         run: |
-          brew install opencv
-          OCV_CMAKE="$(brew --prefix opencv)/lib/cmake/opencv4"
+          brew install opencv@4
+          PREFIX="$(brew --prefix opencv@4)"
+          OCV_CMAKE=""
+          for d in "$PREFIX/lib/cmake/opencv4" "$PREFIX/lib/cmake/opencv5"; do
+            if [[ -f "$d/OpenCVConfig.cmake" ]]; then OCV_CMAKE="$d"; break; fi
+          done
+          echo "cmake dirs:"; ls -la "$PREFIX/lib/cmake" || true
+          test -n "$OCV_CMAKE"
           test -f "$OCV_CMAKE/OpenCVConfig.cmake"
           echo "OpenCV_DIR=$OCV_CMAKE" >> "$GITHUB_ENV"
           echo "Using $OCV_CMAKE"
@@ -88,15 +94,19 @@ jobs:
           test -x "$CLI"
           otool -L "$CLI"
           otool -L "$FW"/libopencv_imgcodecs*.dylib
-          if otool -L "$CLI" "$FW"/*.dylib | grep -E $'\t/opt/homebrew/'; then
-            echo "ERROR: leftover Homebrew absolute load paths" >&2
+          if otool -L "$CLI" "$FW"/*.dylib | grep -E $'\t/opt/homebrew/|'$'\t/Users/'; then
+            echo "ERROR: leftover absolute load paths" >&2
             exit 1
           fi
           if otool -L "$CLI" "$FW"/*.dylib | grep -q '@rpath/libc++.1.dylib'; then
             echo "ERROR: still references @rpath/libc++.1.dylib" >&2
             exit 1
           fi
-          "$CLI" --help
+          if otool -l "$CLI" "$FW"/*.dylib | awk '/cmd LC_RPATH/{c=1} c && $1=="path"{print $2; c=0}' | grep -E '^/opt/homebrew|^/Users/'; then
+            echo "ERROR: leftover Homebrew/Users LC_RPATH" >&2
+            exit 1
+          fi
+          env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin HOME="$HOME" "$CLI" --help
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
